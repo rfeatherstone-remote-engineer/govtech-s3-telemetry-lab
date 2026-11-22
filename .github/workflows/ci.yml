@@ -1,0 +1,24 @@
+name: GovTech Python SRE Telemetry CI
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+permissions: { contents: read }
+jobs:
+  test-chaos-and-provenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python3 -m unittest discover -s tests -v
+      - run: python3 -m remediation.self_healer --inject-fault cui_leak && python3 -m remediation.self_healer --inject-fault slo_burn --execute --state-dir /tmp/ci-state
+      - run: |
+          find core compliance detections remediation runbooks templates tests -type f ! -path '*/__pycache__/*' | sort | xargs sha256sum > SHA256SUMS
+          python3 -c 'import datetime, json, platform; files=[{"fileName": p, "checksums":[{"algorithm":"SHA256","checksumValue":d}]} for d, p in (l.rstrip("\n").split("  ", 1) for l in open("SHA256SUMS", encoding="utf-8"))]; json.dump({"spdxVersion":"SPDX-2.3","SPDXID":"SPDXRef-DOCUMENT","name":"govtech-s3-telemetry-lab","creationInfo":{"created":datetime.datetime.now(datetime.timezone.utc).isoformat(),"creators":[f"Tool: python-{platform.python_version()}-stdlib"]},"files":files}, open("sbom.spdx.json","w",encoding="utf-8"), indent=2)'
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: govtech-supply-chain-provenance
+          path: |
+            SHA256SUMS
+            sbom.spdx.json
